@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>语音输入</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="语音输入">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    background: #0c0c10;
+    color: #ece8e1;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .container {
+    width: 100%;
+    max-width: 360px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+  }
+  h1 { font-size: 22px; font-weight: 600; letter-spacing: 0.5px; }
+  .subtitle { font-size: 13px; color: #8a857e; text-align: center; }
+
+  /* ── 麦克风按钮 ────────────────────────── */
+  .mic-btn {
+    width: 120px; height: 120px; border-radius: 60px;
+    border: 3px solid #4ecdc4;
+    background: rgba(78, 205, 196, 0.08);
+    color: #4ecdc4; font-size: 48px; cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  }
+  .mic-btn:active, .mic-btn.listening {
+    background: rgba(78, 205, 196, 0.2);
+    border-color: #ff6b35; color: #ff6b35;
+    transform: scale(1.05);
+  }
+  .mic-btn .pulse {
+    display: none; position: absolute;
+    width: 160px; height: 160px; border-radius: 80px;
+    border: 2px solid rgba(255, 107, 53, 0.3);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  .mic-btn.listening .pulse { display: block; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.4; }
+    50% { transform: scale(1.15); opacity: 0; }
+  }
+
+  .mic-status {
+    font-size: 14px; color: #5a5650;
+    transition: color 0.3s; text-align: center; min-height: 20px;
+  }
+  .mic-status.listening { color: #ff6b35; }
+  .mic-status.error { color: #ff4d4d; }
+
+  /* ── 可编辑文本框 ────────────────────────── */
+  .transcript-box {
+    width: 100%; padding: 12px; border-radius: 12px;
+    background: #16161f;
+    border: 1px solid rgba(255,255,255,0.06);
+    font-size: 16px; line-height: 1.7; color: #ece8e1;
+    font-family: inherit; resize: none; outline: none;
+    min-height: 120px; max-height: 240px;
+    transition: border-color 0.2s;
+  }
+  .transcript-box:focus {
+    border-color: rgba(78,205,196,0.3);
+  }
+  .transcript-box::placeholder {
+    color: #5a5650; font-style: italic; font-size: 14px;
+  }
+
+  /* ── 底部按钮 ──────────────────────────── */
+  .actions { display: flex; gap: 10px; width: 100%; }
+  .action-btn {
+    flex: 1; padding: 12px; border: none; border-radius: 10px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: all 0.2s; font-family: inherit;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  }
+  .action-btn.clear { background: rgba(255,77,77,0.08); color: #ff5c5c; }
+  .action-btn.clear:active { background: rgba(255,77,77,0.2); }
+  .action-btn.send { background: rgba(78,205,196,0.12); color: #4ecdc4; }
+  .action-btn.send:active { background: rgba(78,205,196,0.25); }
+  .action-btn.send.sent { background: rgba(78,205,196,0.25); color: #2ecc71; }
+  .action-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* ── 状态指示器 ────────────────────────── */
+  .conn-status { font-size: 11px; color: #5a5650; display: flex; align-items: center; gap: 6px; }
+  .conn-dot { width: 8px; height: 8px; border-radius: 4px; background: #5a5650; transition: background 0.3s; }
+  .conn-dot.connected { background: #4ecdc4; }
+  .conn-dot.disconnected { background: #ff4d4d; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🎤 语音输入</h1>
+  <p class="subtitle">说话后文字自动到电脑，可编辑修改后再发送</p>
+
+  <!-- 连接状态 -->
+  <div class="conn-status">
+    <span class="conn-dot" id="connDot"></span>
+    <span id="connText">连接中…</span>
+  </div>
+
+  <!-- 麦克风按钮 -->
+  <button class="mic-btn" id="micBtn">
+    🎤 <div class="pulse"></div>
+  </button>
+  <div class="mic-status" id="micStatus">点击开始说话</div>
+
+  <!-- 可编辑文本框（手机上可以直接改） -->
+  <textarea class="transcript-box" id="transcriptBox" placeholder="识别的文字会显示在这里，也可以直接编辑修改…"></textarea>
+
+  <!-- 操作按钮 -->
+  <div class="actions">
+    <button class="action-btn clear" id="clearBtn">🗑️ 清空</button>
+    <button class="action-btn send" id="sendBtn">📋 发送到电脑</button>
+  </div>
+</div>
+
+<script>
+// ── WebSocket 连接 ──────────────────────────────
+const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${protocol}//${location.host}`);
+const connDot = document.getElementById('connDot');
+const connText = document.getElementById('connText');
+
+ws.onopen = () => { connDot.className = 'conn-dot connected'; connText.textContent = '已连接'; };
+ws.onclose = () => { connDot.className = 'conn-dot disconnected'; connText.textContent = '已断开'; };
+ws.onerror = () => { connDot.className = 'conn-dot disconnected'; connText.textContent = '连接失败，刷新重试'; };
+
+// ── DOM ──────────────────────────────────────────
+const micBtn = document.getElementById('micBtn');
+const micStatus = document.getElementById('micStatus');
+const transcriptBox = document.getElementById('transcriptBox');
+const sendBtn = document.getElementById('sendBtn');
+const clearBtn = document.getElementById('clearBtn');
+
+let recognition = null;
+let isListening = false;
+
+// ── 文本框操作 ────────────────────────────────
+function getText() { return transcriptBox.value; }
+function setText(text) { transcriptBox.value = text; scrollToEnd(); }
+function scrollToEnd() { requestAnimationFrame(() => { transcriptBox.scrollTop = transcriptBox.scrollHeight; }); }
+function appendText(text) {
+  if (!text) return;
+  const cur = getText();
+  // 前一句以句号结尾的话换行，否则空格接
+  const sep = cur && /[。！？]/.test(cur.trim().slice(-1)) ? '\n' : '';
+  setText(cur + sep + text);
+}
+function sendTextToServer(text) {
+  if (!text || !text.trim()) return;
+  ws.send(JSON.stringify({ type: 'text', text: text.trim() }));
+  sendBtn.textContent = '✅ 已发送';
+  sendBtn.classList.add('sent');
+  setTimeout(() => { sendBtn.classList.remove('sent'); sendBtn.textContent = '📋 发送到电脑'; }, 1500);
+}
+
+// ── 语音识别 ──────────────────────────────────
+function startListening() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { micStatus.textContent = '❌ 浏览器不支持语音识别'; micStatus.className = 'mic-status error'; return; }
+
+  recognition = new SR();
+  recognition.lang = 'zh-CN';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () => {
+    isListening = true;
+    micBtn.classList.add('listening');
+    micStatus.textContent = '🎤 说话中…';
+    micStatus.className = 'mic-status listening';
+  };
+
+  recognition.onresult = (event) => {
+    let final = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) final += event.results[i][0].transcript;
+    }
+    if (final) {
+      appendText(final);
+      sendTextToServer(getText());  // 发送全部内容（含编辑过的）
+    }
+  };
+
+  recognition.onerror = (event) => {
+    if (event.error === 'no-speech') return;
+    if (event.error === 'aborted') return;
+    stopListening();
+    micStatus.textContent = '❌ 错误，点按钮重试';
+    micStatus.className = 'mic-status error';
+  };
+
+  recognition.onend = () => {
+    if (isListening) { try { recognition.start(); } catch(_) {} }
+  };
+
+  try { recognition.start(); }
+  catch (err) { micStatus.textContent = '❌ 请允许麦克风权限'; micStatus.className = 'mic-status error'; }
+}
+
+function stopListening() {
+  isListening = false;
+  if (recognition) { try { recognition.stop(); } catch(_) {} recognition = null; }
+  micBtn.classList.remove('listening');
+  micStatus.textContent = '已暂停，点击继续说话';
+  micStatus.className = 'mic-status';
+}
+
+// ── 事件绑定 ──────────────────────────────────
+micBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  isListening ? stopListening() : startListening();
+});
+
+sendBtn.addEventListener('click', () => sendTextToServer(getText()));
+
+clearBtn.addEventListener('click', () => {
+  setText('');
+  sendBtn.textContent = '📋 发送到电脑';
+  sendBtn.classList.remove('sent');
+});
+
+// 键盘快捷键
+document.addEventListener('keydown', (e) => {
+  if (e.key === ' ' && e.target === document.body) { e.preventDefault(); isListening ? stopListening() : startListening(); }
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendTextToServer(getText());
+  if (e.key === 'Escape') { setText(''); sendBtn.textContent = '📋 发送到电脑'; sendBtn.classList.remove('sent'); }
+});
+
+// ── 注册 Service Worker（支持添加到主屏幕）───
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js');
+}
+
+console.log('🎤 语音输入已加载');
+</script>
+</body>
+</html>
